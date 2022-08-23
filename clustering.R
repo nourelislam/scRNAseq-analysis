@@ -1,42 +1,55 @@
+install.packages("tidyverse")
 
-##### Clustering ###
-suppressMessages(require(Seurat))
+library(Seurat)
+library(tidyverse)
+library(RCurl)
+library(cowplot)
+library(ggplot2)
 
-pbmc = readRDS("pbmc3k.rds")
-scaled_pbmc = pbmc@assays$RNA@scale.data
-dis_euclidean = dist(t(scaled_pbmc))
-ward_hclust = hclust(dis_euclidean, method = "ward.D2")
-plot(ward_hclust, main = "dist = eucledian, Ward linkage", labels=FALSE)
+## visualize the most variable PCs ##
+integ_Seurat = readRDS('data_created/integ_Seurat')
+ElbowPlot(integ_Seurat, ndims = 15) ### utilizing the 1st 8 PCs is the best option for clustering ##
+DimHeatmap(integ_Seurat, dims = 1:9, cells = 500)
+print(integ_Seurat[['pca']], dims = 1:10)
+### starting clustering by determine the number of Neighbors ##
+integ_Seurat = FindNeighbors(integ_Seurat, dims = 1:40)
+integ_Seurat = FindClusters(integ_Seurat, resolution = c(0.4,0.6,0.8,
+                                                         1.0,1.2,1.4))
+# head(integ_Seurat@meta.data)
+Idents(integ_Seurat) = "integrated_snn_res.0.8" 
+DimPlot(integ_Seurat, reduction = 'umap', label = T) +ggtitle('Clustering_0.8_resolution/Neighbor_Dim20')
+### change the identity ##
+# Idents(integ_Seurat) = 'integrated_snn_res.0.4'
+# DimPlot(integ_Seurat, label = T, reduction = 'umap') + ggtitle("Clustering_0.4_resolution")
 
-cluster_hclust = cutree(ward_hclust, k = 7)
-#table(pbmc@meta.data$celltype)
-pbmc@meta.data$cluster_hclust = factor(cluster_hclust)
-p1 = DimPlot(pbmc, reduction = "tsne", group.by = "cluster_hclust")
-p2 = DimPlot(pbmc, reduction = "tsne", group.by = "celltype")
-p1 + p2
+#### QC of clustering ##
+colnames(integ_Seurat@meta.data)
+n_cells = FetchData(integ_Seurat, vars = c('orig.ident', 'ident')) %>%
+  dplyr::count(ident, orig.ident) %>% tidyr::spread(ident, n)
+DimPlot(integ_Seurat, reduction = 'umap', split.by = 'sample', label = T, group.by = 'ident')
+### QC by cell cycle features ##
+DimPlot(integ_Seurat, group.by = 'Phase', split.by = 'Phase') +ggtitle('QC by cellCycle features')
+## QC Mito ##
+DimPlot(integ_Seurat, split.by = 'mit.frc', group.by = "mit.frc")
+features = c('nFeature_RNA','nCount_RNA','G2M.Score','S.Score')
+FeaturePlot(integ_Seurat, features = features, label = T)
 
-FeaturePlot(pbmc, reduction = "tsne", features = c( 'GNLY','NKG7'))
-head(pbmc@assays$RNA@var.features)
+columns = c(paste0('PC_',1:16), 'ident','UMAP_1','UMAP_2')
+PC_data = FetchData(integ_Seurat, vars = columns)
+head(PC_data)
+### the following code this is where the reduction score stored ##
+integ_Seurat@reductions$pca@cell.embeddings[1:5, 1:2]
+print(integ_Seurat[['pca']], dim = 1:5, nfeatures = 5)
+DefaultAssay(integ_Seurat) = 'RNA'
+integ_Seurat = NormalizeData(integ_Seurat, verbose = F)
+### visualise the most variable gene and marker genes ##
+top_variable_genes = FeaturePlot(integ_Seurat, features = c('FTL', 'GNLY', 'CCL2', 'HBB', 'HBA2', 'CXCL10', 'HBA1', 'CCL7', 'CCL3', 'CCL4'),
+            reduction = 'umap', label = T)
+FeaturePlot(integ_Seurat, reduction = 'umap', features = c('HBB', 'HBA2'), label = T)
 
-#### clustering by seurat ###
-pbmc = FindNeighbors(pbmc, dims = 1:10)
-pbmc = FindClusters(pbmc, resolution = 0.22) ##resolution is determine the distance between clusters #
-# head(pbmc@meta.data$seurat_clusters)
-p1 = DimPlot(pbmc, group.by = "seurat_clusters", reduction = 'tsne') +NoLegend()
-p2 = DimPlot(pbmc, group.by = "celltype", reduction = 'tsne',
-             label = T) + NoLegend()
-p1+p2
-
-FeaturePlot(pbmc, reduction = 'umap', features = c('CD19', 'CD3D', 'CD14', 'NKG7'))
-
-new_ids = c('B cells','T cells and NK cells','Monocyte') ## which is which ????????###
-names(new_ids) = levels(pbmc)
-pbmc = RenameIdents(pbmc, new_ids)
-DimPlot(pbmc, reduction = 'tsne', label = T)+ NoLegend()
-
-saveRDS(pbmc, file = "pbmc3k.rds")
-
-
+  
+  
+  
 
 
 
